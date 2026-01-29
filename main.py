@@ -14,6 +14,7 @@ import re
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CHANNEL_ID = 1466324052837798005  # channel for alerts
+OWNER_ID = 123456789012345678  # REPLACE WITH YOUR DISCORD USER ID
 
 # File to store custom products
 CUSTOM_PRODUCTS_FILE = "custom_products.json"
@@ -367,7 +368,15 @@ def get_stock_for_url(url):
 async def on_ready():
     # Load custom products before starting
     load_custom_products()
-    await bot.tree.sync()
+    
+    # Sync commands
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
+    
+    # Start the stock check loop
     check_stock_loop.start()
     print(f"Logged in as {bot.user}")
 
@@ -433,6 +442,21 @@ async def check_stock_loop():
 # ==========================
 # SLASH COMMANDS
 # ==========================
+
+@bot.tree.command(name="sync", description="Sync slash commands (Owner only)")
+async def sync(interaction: discord.Interaction):
+    """Sync slash commands to Discord"""
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    try:
+        synced = await bot.tree.sync()
+        await interaction.followup.send(f"✅ Synced {len(synced)} commands globally.", ephemeral=True)
+        print(f"Synced {len(synced)} commands")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error syncing commands: {e}", ephemeral=True)
 
 @bot.tree.command(name="stock", description="Check vape stock")
 @app_commands.choices(
@@ -648,6 +672,7 @@ async def help_cmd(interaction: discord.Interaction):
         "/addurl – Add a new product URL to monitor\n"
         "/listcustom – List all custom products being monitored\n"
         "/removeurl – Remove a custom product from monitoring\n"
+        "/sync – Sync commands (Owner only)\n"
         "/help – Show this menu\n\n"
         "**Supported Sites:**\n"
         "• vaporhatch.com\n"
@@ -660,4 +685,12 @@ async def help_cmd(interaction: discord.Interaction):
 # ==========================
 
 if __name__ == "__main__":
+    # IMPORTANT: Replace with your Discord User ID
+    print("WARNING: Please replace OWNER_ID with your Discord User ID!")
+    print("Find your Discord ID: User Settings → Advanced → Developer Mode ON → Right-click your profile → Copy ID")
+    
+    if OWNER_ID == 123456789012345678:
+        print("\n❌ ERROR: You must replace OWNER_ID with your actual Discord User ID!")
+        print("The bot will still run, but /sync command won't work.")
+    
     bot.run(TOKEN)
