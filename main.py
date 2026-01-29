@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 # CONFIG
 # ==========================
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.environ.get("DISCORD_TOKEN")
 CHANNEL_ID = 1466324052837798005  # channel for alerts
 
 PRODUCTS = {
