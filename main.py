@@ -39,11 +39,14 @@ PRODUCTS = {
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def get_in_stock_flavors(url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    r = requests.get(url, headers=headers, timeout=15)
-    soup = BeautifulSoup(r.text, "html.parser")
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+def get_soup(url):
+    r = requests.get(url, headers=HEADERS, timeout=15)
+    return BeautifulSoup(r.text, "html.parser")
+
+def get_in_stock_flavors(url):
+    soup = get_soup(url)
     fieldset = soup.find("fieldset", class_="product-form__input")
     if not fieldset:
         return set()
@@ -53,6 +56,13 @@ def get_in_stock_flavors(url):
         for inp in fieldset.find_all("input", {"type": "radio"})
         if "disabled" not in inp.get("class", []) and inp.get("value")
     }
+
+def get_price(url):
+    soup = get_soup(url)
+    price_span = soup.find("span", class_="price-item--regular")
+    if not price_span:
+        return "Price not found"
+    return price_span.text.strip()
 
 @bot.event
 async def on_ready():
@@ -71,9 +81,14 @@ async def check_stock_loop():
         new_items = current_stock - product["last_stock"]
 
         if new_items:
+            price = get_price(product["url"])
             await channel.send(
                 f"🚨 **{product['name']} RESTOCKED!**\n"
-                "```" + "\n".join(f"- {i}" for i in sorted(new_items)) + "```"
+                f"💲 **Price:** {price}\n"
+                f"🔗 {product['url']}\n"
+                "```"
+                + "\n".join(f"- {i}" for i in sorted(new_items))
+                + "```"
             )
 
         product["last_stock"] = current_stock
@@ -91,11 +106,23 @@ async def check_stock_loop():
 async def stock(interaction: discord.Interaction, product: app_commands.Choice[str]):
     data = PRODUCTS[product.value]
     flavors = get_in_stock_flavors(data["url"])
+    price = get_price(data["url"])
 
     if flavors:
-        msg = "```" + f"{data['name']}\nIN STOCK:\n" + "\n".join(f"- {f}" for f in sorted(flavors)) + "```"
+        msg = (
+            f"🔗 {data['url']}\n"
+            f"💲 **Price:** {price}\n"
+            "```"
+            + f"{data['name']}\nIN STOCK:\n"
+            + "\n".join(f"- {f}" for f in sorted(flavors))
+            + "```"
+        )
     else:
-        msg = f"**{data['name']}**\n❌ **All flavors are OUT OF STOCK**"
+        msg = (
+            f"🔗 {data['url']}\n"
+            f"💲 **Price:** {price}\n"
+            f"**{data['name']}**\n❌ **All flavors are OUT OF STOCK**"
+        )
 
     await interaction.response.send_message(msg)
 
