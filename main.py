@@ -457,7 +457,7 @@ async def on_ready():
 # BACKGROUND STOCK CHECK
 # ==========================
 
-@tasks.loop(minutes=30)
+@tasks.loop(minutes=5)
 async def check_stock_loop():
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
@@ -591,7 +591,7 @@ async def addurl(interaction: discord.Interaction, url: str):
             f"✅ **Added to monitoring:** {name}\n"
             f"🌐 **Site:** {site.title()}\n"
             f"🔗 {url}\n"
-            f"📊 This product will now be checked every 30 minutes for stock changes.\n"
+            f"📊 This product will now be checked every 5 minutes for stock changes.\n"
             f"🆔 Product ID: `{product_key}`\n"
             f"📝 Use `/listcustom` to see all custom products.\n"
             f"🔁 **Updated:** `/stock` command now includes this product!"
