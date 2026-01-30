@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 import json
 import time
 import re
+import hashlib
 
 # ==========================
 # CONFIG
@@ -14,7 +15,7 @@ import re
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CHANNEL_ID = 1466324052837798005  # channel for alerts
-OWNER_ID = 123456789012345678  # REPLACE WITH YOUR DISCORD USER ID
+OWNER_ID = 930917065487958036  # REPLACE WITH YOUR DISCORD USER ID
 
 # File to store custom products
 CUSTOM_PRODUCTS_FILE = "custom_products.json"
@@ -104,7 +105,6 @@ def save_custom_products():
 
 def generate_product_key(url):
     """Generate a unique key for a product based on URL"""
-    import hashlib
     return hashlib.md5(url.encode()).hexdigest()[:8]
 
 def detect_site_from_url(url):
@@ -182,6 +182,76 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+# ==========================
+# DYNAMIC COMMAND UTILITIES
+# ==========================
+
+def get_product_choices():
+    """Generate dynamic choices for the /stock command"""
+    choices = [
+        app_commands.Choice(name="Foger Switch Pro 30K POD", value="fogerpod"),
+        app_commands.Choice(name="Foger Switch Pro 30K KIT", value="fogerkit"),
+        app_commands.Choice(name="Geek Bar Pulse 15000", value="geekbar"),
+        app_commands.Choice(name="RAZ TN9000", value="raztn9000"),
+        app_commands.Choice(name="Hero X 30K", value="herox"),
+    ]
+    
+    # Add custom products
+    for key, product in PRODUCTS.items():
+        if product.get("is_custom", False):
+            # Truncate long names for Discord's 100-character limit
+            display_name = f"Custom: {product['name']}"
+            if len(display_name) > 90:
+                display_name = display_name[:87] + "..."
+            choices.append(app_commands.Choice(name=display_name, value=key))
+    
+    return choices
+
+async def register_stock_command():
+    """Register or re-register the /stock command with updated choices"""
+    # Remove existing command if it exists
+    bot.tree.remove_command("stock", type=discord.AppCommandType.chat_input)
+    
+    @bot.tree.command(name="stock", description="Check vape stock")
+    @app_commands.choices(product=get_product_choices())
+    async def stock(interaction: discord.Interaction, product: app_commands.Choice[str]):
+        data = PRODUCTS[product.value]
+        flavors = get_in_stock_flavors(data["url"])
+        price = get_price(data["url"])
+        inventory_info = get_inventory_info(data["url"])
+
+        if flavors:
+            msg = (
+                "```"
+                f"{data['name']}\n"
+                f"Price: {price}\n"
+            )
+            
+            if inventory_info:
+                msg += f"Inventory: {inventory_info}\n"
+                
+            msg += (
+                "IN STOCK:\n"
+                + "\n".join(f"- {f}" for f in sorted(flavors))
+                + "```"
+                f"\n🔗 {data['url']}"
+            )
+        else:
+            msg = (
+                f"**{data['name']}**\n"
+                f"💲 **Price:** {price}\n"
+            )
+            
+            if inventory_info:
+                msg += f"📦 **Inventory:** {inventory_info}\n"
+                
+            msg += (
+                f"🔗 {data['url']}\n"
+                "❌ **All flavors/variants are OUT OF STOCK**"
+            )
+
+        await interaction.response.send_message(msg)
 
 # ==========================
 # SCRAPERS - VAPORHATCH
@@ -369,6 +439,9 @@ async def on_ready():
     # Load custom products before starting
     load_custom_products()
     
+    # Register commands
+    await register_stock_command()
+    
     # Sync commands
     try:
         synced = await bot.tree.sync()
@@ -452,59 +525,14 @@ async def sync(interaction: discord.Interaction):
     
     await interaction.response.defer(ephemeral=True)
     try:
+        # Re-register stock command to ensure it's up-to-date
+        await register_stock_command()
+        
         synced = await bot.tree.sync()
         await interaction.followup.send(f"✅ Synced {len(synced)} commands globally.", ephemeral=True)
         print(f"Synced {len(synced)} commands")
     except Exception as e:
         await interaction.followup.send(f"❌ Error syncing commands: {e}", ephemeral=True)
-
-@bot.tree.command(name="stock", description="Check vape stock")
-@app_commands.choices(
-    product=[
-        app_commands.Choice(name="Foger Switch Pro 30K POD", value="fogerpod"),
-        app_commands.Choice(name="Foger Switch Pro 30K KIT", value="fogerkit"),
-        app_commands.Choice(name="Geek Bar Pulse 15000", value="geekbar"),
-        app_commands.Choice(name="RAZ TN9000", value="raztn9000"),
-        app_commands.Choice(name="Hero X 30K", value="herox"),
-    ]
-)
-async def stock(interaction: discord.Interaction, product: app_commands.Choice[str]):
-    data = PRODUCTS[product.value]
-    flavors = get_in_stock_flavors(data["url"])
-    price = get_price(data["url"])
-    inventory_info = get_inventory_info(data["url"])
-
-    if flavors:
-        msg = (
-            "```"
-            f"{data['name']}\n"
-            f"Price: {price}\n"
-        )
-        
-        if inventory_info:
-            msg += f"Inventory: {inventory_info}\n"
-            
-        msg += (
-            "IN STOCK:\n"
-            + "\n".join(f"- {f}" for f in sorted(flavors))
-            + "```"
-            f"\n🔗 {data['url']}"
-        )
-    else:
-        msg = (
-            f"**{data['name']}**\n"
-            f"💲 **Price:** {price}\n"
-        )
-        
-        if inventory_info:
-            msg += f"📦 **Inventory:** {inventory_info}\n"
-            
-        msg += (
-            f"🔗 {data['url']}\n"
-            "❌ **All flavors/variants are OUT OF STOCK**"
-        )
-
-    await interaction.response.send_message(msg)
 
 @bot.tree.command(name="addurl", description="Add a new product URL to monitor")
 @app_commands.describe(url="The product URL to monitor")
@@ -550,13 +578,23 @@ async def addurl(interaction: discord.Interaction, url: str):
         # Save to file
         save_custom_products()
         
+        # Re-register the /stock command to include the new product
+        await register_stock_command()
+        
+        # Sync commands with Discord
+        try:
+            await bot.tree.sync()
+        except Exception as sync_error:
+            print(f"Sync error after adding product: {sync_error}")
+        
         await interaction.followup.send(
             f"✅ **Added to monitoring:** {name}\n"
             f"🌐 **Site:** {site.title()}\n"
             f"🔗 {url}\n"
             f"📊 This product will now be checked every 30 minutes for stock changes.\n"
             f"🆔 Product ID: `{product_key}`\n"
-            f"📝 Use `/listcustom` to see all custom products."
+            f"📝 Use `/listcustom` to see all custom products.\n"
+            f"🔁 **Updated:** `/stock` command now includes this product!"
         )
         
     except Exception as e:
@@ -652,8 +690,18 @@ async def removeurl(interaction: discord.Interaction, product_id: str):
         del PRODUCTS[product_id]
         save_custom_products()
         
+        # Re-register the /stock command to remove the product
+        await register_stock_command()
+        
+        # Sync commands with Discord
+        try:
+            await bot.tree.sync()
+        except Exception as sync_error:
+            print(f"Sync error after removing product: {sync_error}")
+        
         await interaction.response.send_message(
-            f"✅ **Removed:** {product_name} is no longer being monitored.",
+            f"✅ **Removed:** {product_name} is no longer being monitored.\n"
+            f"🔁 **Updated:** `/stock` command has been refreshed!",
             ephemeral=True
         )
     else:
@@ -667,7 +715,7 @@ async def removeurl(interaction: discord.Interaction, product_id: str):
 async def help_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(
         "**Commands**\n"
-        "/stock – Check pre-defined product stock\n"
+        "/stock – Check pre-defined product stock (includes custom products)\n"
         "/stockurl – Check stock for any supported URL\n"
         "/addurl – Add a new product URL to monitor\n"
         "/listcustom – List all custom products being monitored\n"
@@ -676,7 +724,8 @@ async def help_cmd(interaction: discord.Interaction):
         "/help – Show this menu\n\n"
         "**Supported Sites:**\n"
         "• vaporhatch.com\n"
-        "• drsmoke.com",
+        "• drsmoke.com\n\n"
+        "**Note:** Custom products added via `/addurl` will automatically appear in the `/stock` command dropdown!",
         ephemeral=True
     )
 
